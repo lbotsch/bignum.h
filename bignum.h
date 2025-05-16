@@ -51,6 +51,7 @@ BNDEF bn_err_t bn_to_string(const bn_t *bn, char **s);
 BNDEF int bn_cmp(const bn_t *a, const bn_t *b);
 BNDEF int bn_cmp_abs(const bn_t *a, const bn_t *b);
 
+BNDEF bn_err_t bn_abs(bn_t *result, const bn_t *a);
 BNDEF bn_err_t bn_add(bn_t *result, const bn_t *a, const bn_t *b);
 BNDEF bn_err_t bn_sub(bn_t *result, const bn_t *a, const bn_t *b);
 BNDEF bn_err_t bn_mul(bn_t *result, const bn_t *a, const bn_t *b);
@@ -258,6 +259,16 @@ int bn_cmp_abs(const bn_t *a, const bn_t *b) {
   } while (sa-- > 0);
 
   return 0;
+}
+
+bn_err_t bn_abs(bn_t *result, const bn_t *a) {
+  BN_ASSERT(result != NULL);
+  BN_ASSERT(a != NULL);
+
+  bn_clone(a, result);
+  result->sign = 1;
+
+  return BN_OK;
 }
 
 bn_err_t bn_add(bn_t *result, const bn_t *a, const bn_t *b) {
