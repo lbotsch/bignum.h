@@ -379,6 +379,75 @@ bn_err_t bn_sub(bn_t *result, const bn_t *a, const bn_t *b) {
 
   return BN_OK;
 }
+
+static bn_digit_t bn_digit_hi(bn_digit_t x) {
+  return x >> (sizeof(bn_digit_t) << 2);
+}
+static bn_digit_t bn_digit_lo(bn_digit_t x) {
+  return ((1ULL << (sizeof(bn_digit_t) << 2)) - 1) & x;
+}
+static void bn_digit_mul(bn_digit_t a, bn_digit_t b, bn_digit_t *result, bn_digit_t *carry) {
+  bn_digit_t s0, s1, s2, s3, x;
+
+  x = bn_digit_lo(a) * bn_digit_lo(b);
+  s0 = bn_digit_lo(x);
+
+  x = bn_digit_hi(a) * bn_digit_lo(b) + bn_digit_hi(x);
+  s1 = bn_digit_lo(x);
+  s2 = bn_digit_hi(x);
+
+  x = s1 + bn_digit_lo(a) * bn_digit_hi(b);
+  s1 = bn_digit_lo(x);
+
+  x = s2 + bn_digit_hi(a) * bn_digit_hi(b) + bn_digit_hi(x);
+  s2 = bn_digit_lo(x);
+  s3 = bn_digit_hi(x);
+
+  *result = s1 << (sizeof(bn_digit_t) << 2) | s0;
+  *carry = s3 << (sizeof(bn_digit_t) << 2) | s2;
+}
+
+static bn_err_t bn_mul_simple(bn_t *result, const bn_t *a, const bn_t *b) {
+  // Initialize result
+  result->size = 0;
+  for (size_t i = 0; i < a->size + b->size; ++i)
+    bn_append_digit(result, 0);
+
+  for (size_t i = 0; i < a->size; ++i) {
+    for (size_t j = 0; j < b->size; ++j) {
+      bn_digit_t res, carry;
+      bn_digit_mul(a->digits[i], b->digits[j], &res, &carry);
+      result->digits[i + j] += res;
+      result->digits[i + j + 1] += carry;
+    }
+  }
+
+  size_t new_size = result->size;
+  while (result->digits[new_size - 1] == 0) new_size--;
+  result->size = new_size;
+
+  return BN_OK;
+}
+
+//static bn_err_t bn_mul_toom3(bn_t *result, const bn_t *a, const bn_t *b) {}
+
+bn_err_t bn_mul(bn_t *result, const bn_t *a, const bn_t *b) {
+  BN_ASSERT(result != NULL);
+  BN_ASSERT(a != NULL);
+  BN_ASSERT(b != NULL);
+
+  result->sign = a->sign * b->sign;
+
+  return bn_mul_simple(result, a, b);
+
+  /*
+  if (a->size + b->size < 20)
+    return bn_mul_simple(result, a, b);
+  else
+    return bn_mul_toom3(result, a, b);
+  */
+}
+
 #endif // BIGNUM_IMPLEMENTATION
 
 #ifndef BIGNUM_NOSTRIP_PREFIX
