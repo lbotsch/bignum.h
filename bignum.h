@@ -26,11 +26,11 @@ typedef enum {
 } bn_err_t;
 #if defined(__x86_64__) || defined(_M_X64)
 typedef uint64_t bn_digit_t;
-#define BN_BASE 10000000000000000000
+#define BN_BASE 10000000000000000000u
 #define BN_BASE_DIGITS 19
 #else
 typedef uint32_t bn_digit_t;
-#define BN_BASE 1000000000
+#define BN_BASE 1000000000u
 #define BN_BASE_DIGITS 9
 #endif
 
@@ -43,9 +43,13 @@ typedef struct {
 
 BNDEF bn_err_t bn_from_string(bn_t *bn, const char *s);
 BNDEF bn_err_t bn_from_int(bn_t *bn, int i);
+BNDEF bn_err_t bn_clone(const bn_t *from, bn_t *to);
 BNDEF void bn_free(bn_t *bn);
 
 BNDEF bn_err_t bn_to_string(const bn_t *bn, char **s);
+
+BNDEF int bn_cmp(const bn_t *a, const bn_t *b);
+BNDEF int bn_cmp_abs(const bn_t *a, const bn_t *b);
 
 BNDEF bn_err_t bn_add(bn_t *result, const bn_t *a, const bn_t *b);
 BNDEF bn_err_t bn_sub(bn_t *result, const bn_t *a, const bn_t *b);
@@ -136,6 +140,18 @@ bn_err_t bn_from_int(bn_t *bn, int i) {
   return BN_OK;
 }
 
+bn_err_t bn_clone(const bn_t *from, bn_t *to) {
+  BN_ASSERT(from != NULL);
+  BN_ASSERT(to != NULL);
+
+  to->size = 0;
+  to->sign = from->sign;
+  for (size_t i = 0; i < from->size; ++i) {
+    bn_append_digit(to, from->digits[i]);
+  }
+  return BN_OK;
+}
+
 void bn_free(bn_t *bn) {
   free(bn->digits);
   bn->size = 0;
@@ -182,6 +198,12 @@ void bn_sb_free(bn_sb_t *sb) {
 
 bn_err_t bn_to_string(const bn_t *bn, char **s) {
   bn_sb_t sb = {0};
+
+  if (bn->size == 0) {
+    *s = bn_sb_to_str(&sb);
+    return BN_OK;
+  }
+
   for (size_t i = 0; i < bn->size - 1; ++i) {
     bn_digit_t d = bn->digits[i];
     for (size_t j = 0; j < BN_BASE_DIGITS; ++j) {
@@ -191,14 +213,15 @@ bn_err_t bn_to_string(const bn_t *bn, char **s) {
   }
 
   // Handle most significant digits
-  bn_digit_t d = bn->digits[bn->size-1];
+  bn_digit_t d = bn->digits[bn->size - 1];
   while (d > 0) {
     bn_sb_append_char(&sb, d % 10 + '0');
     d /= 10;
   }
 
   // Handle sign
-  if (bn->sign == -1) bn_sb_append_char(&sb, '-');
+  if (bn->sign == -1)
+    bn_sb_append_char(&sb, '-');
 
   bn_sb_reverse(&sb);
   *s = bn_sb_to_str(&sb);
@@ -206,6 +229,145 @@ bn_err_t bn_to_string(const bn_t *bn, char **s) {
   return BN_OK;
 }
 
+int bn_cmp(const bn_t *a, const bn_t *b) {
+  if (a->sign < b->sign) return -1;
+  if (a->sign > b->sign) return 1;
+
+  int res = bn_cmp_abs(a, b);
+  if (a->sign < 0) return -res;
+  return res;
+}
+int bn_cmp_abs(const bn_t *a, const bn_t *b) {
+  if (a->size == 0 && b->size == 0) return 0;
+  else if (a->size == 0) return -1;
+  else if (b->size == 0) return 1;
+
+  // handle zero padding
+  size_t sa = a->size - 1;
+  for (;sa > 0 && a->digits[sa] == 0; sa--);
+  size_t sb = b->size - 1;
+  for (;sb > 0 && b->digits[sb] == 0; sb--);
+
+  if (sa > sb) return 1;
+  if (sa < sb) return -1;
+
+  // compare digit-by-digit
+  do {
+    if (a->digits[sa] > b->digits[sa]) return 1;
+    if (a->digits[sa] < b->digits[sa]) return -1;
+  } while (sa-- > 0);
+
+  return 0;
+}
+
+bn_err_t bn_add(bn_t *result, const bn_t *a, const bn_t *b) {
+  bn_digit_t carry = 0;
+  size_t i = 0;
+  // handle signs
+  if (a->sign == -1 && b->sign == -1) {
+    // both negative
+    result->sign = -1;
+  } else if (a->sign == -1) {
+    // a is negative, b is positive
+    bn_t abs_a = {0};
+    bn_clone(a, &abs_a);
+    abs_a.sign = 1;
+    bn_err_t res = bn_sub(result, b, &abs_a);
+    bn_free(&abs_a);
+    return res;
+  } else if (b->sign == -1) {
+    // a is positive, b is negative
+    bn_t abs_b = {0};
+    bn_clone(b, &abs_b);
+    abs_b.sign = 1;
+    bn_err_t res = bn_sub(result, a, &abs_b);
+    bn_free(&abs_b);
+    return res;
+  } else {
+    result->sign = 1;
+  }
+
+  result->size = 0;
+
+  while (i < a->size || i < b->size || carry != 0) {
+    bn_digit_t sum = carry;
+
+    if (i < a->size) {
+      sum += a->digits[i];
+    }
+
+    if (i < b->size) {
+      sum += b->digits[i];
+    }
+
+    carry = sum > BN_BASE ? 1 : 0;
+    bn_append_digit(result, sum);
+    i++;
+  }
+
+  return BN_OK;
+}
+
+bn_err_t bn_sub(bn_t *result, const bn_t *a, const bn_t *b) {
+  BN_ASSERT(result != NULL);
+  BN_ASSERT(a != NULL);
+  BN_ASSERT(b != NULL);
+
+  // handle sign
+  if (a->sign == -1 && b->sign == -1) {
+    // a is negative, b is negative
+    result->sign = -1;
+  } else if (a->sign == -1 && b->sign == 1) {
+    // a is negative, b is positive
+    bn_t neg_b = {0};
+    bn_clone(b, &neg_b);
+    neg_b.sign = -1;
+    bn_err_t res = bn_add(result, a, &neg_b);
+    bn_free(&neg_b);
+    return res;
+  } else if (a->sign == 1 && b->sign == -1) {
+    // a is positive, b is negative
+    bn_t abs_b = {0};
+    bn_clone(b, &abs_b);
+    abs_b.sign = 1;
+    bn_err_t res = bn_add(result, a, &abs_b);
+    bn_free(&abs_b);
+    return res;
+  } else {
+    result->sign = 1;
+  }
+
+  int cmp = bn_cmp_abs(a, b);
+  if (cmp == 0) return bn_from_int(result, 0);
+  const bn_t *left = a;
+  const bn_t *right = b;
+  if (cmp < 0) {
+    left = b;
+    right = a;
+    result->sign *= -1;
+  }
+  result->size = 0;
+
+  size_t i = 0;
+  bn_digit_t carry = 0;
+  while (i < left->size) {
+    bn_digit_t diff = left->digits[i];
+    if (i < right->size) {
+      carry += right->digits[i];
+    }
+    if (diff < carry) {
+      diff = diff + BN_BASE - carry;
+      carry = 1;
+    } else {
+      diff -= carry;
+      carry = 0;
+    }
+    bn_append_digit(result, diff);
+    i++;
+  }
+
+  return BN_OK;
+}
 #endif // BIGNUM_IMPLEMENTATION
 
 #ifndef BIGNUM_NOSTRIP_PREFIX
