@@ -55,6 +55,7 @@ BNDEF void bn_print_digits(bn_t *bn);
 BNDEF void bn_free(bn_t *bn);
 
 BNDEF bn_err_t bn_to_string(const bn_t *bn, char **s);
+BNDEF void bn_print(const bn_t *bn);
 
 BNDEF int bn_cmp(const bn_t *A, const bn_t *B);
 BNDEF int bn_cmp_abs(const bn_t *A, const bn_t *B);
@@ -625,6 +626,13 @@ end:
   bn_sb_reverse(&sb);
   *s = bn_sb_to_str(&sb);
   return BN_OK;
+}
+
+void bn_print(const bn_t *bn) {
+  char *s;
+  bn_to_string(bn, &s);
+  printf("%s", s);
+  free(s);
 }
 
 //////////////////// BIGNUM COMPARISON ////////////////////

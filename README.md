@@ -93,6 +93,7 @@ bn_err_t bn_rshift(bn_t *result, const bn_t *X, size_t shift); // result = X >> 
 ### Utility
 ```c
 bn_err_t bn_to_string(const bn_t *bn, char **s);
+void bn_print(const bn_t *bn);
 ```
 
 ## Limitations
